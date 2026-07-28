@@ -357,7 +357,7 @@ export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
           "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
         isMember: true,
         reporterName: "Steward",
-        reporterEmail: "tharpster@intekspace.com",
+        reporterEmail: "techsupport@intekspace.com",
         pageUrl:
           "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
       });
@@ -389,7 +389,7 @@ export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
           "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
         isMember: true,
         reporterName: "Steward",
-        reporterEmail: "tharpster@intekspace.com",
+        reporterEmail: "techsupport@intekspace.com",
         pageUrl:
           "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
       });
