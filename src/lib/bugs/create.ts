@@ -1,5 +1,6 @@
 import { getSql } from "@/lib/db";
 import { uid } from "@/lib/utils";
+import { memoryCreateBug } from "./memory-store";
 import type { BugType, Severity, SiteId } from "./types";
 
 export type CreateBugInput = {
@@ -32,7 +33,7 @@ export type CreateBugResult = {
   siteId: string;
 };
 
-export async function createBugReport(
+async function createBugReportSql(
   data: CreateBugInput,
 ): Promise<CreateBugResult> {
   const sql = await getSql();
@@ -66,6 +67,20 @@ export async function createBugReport(
   `;
 
   return { id, isMember, siteId };
+}
+
+export async function createBugReport(
+  data: CreateBugInput,
+): Promise<CreateBugResult> {
+  try {
+    return await createBugReportSql(data);
+  } catch (err) {
+    console.warn(
+      "[bugs] SQL create failed — using memory store:",
+      err instanceof Error ? err.message : err,
+    );
+    return memoryCreateBug(data);
+  }
 }
 
 export function normalizeSubmitBody(raw: Record<string, unknown>): CreateBugInput {

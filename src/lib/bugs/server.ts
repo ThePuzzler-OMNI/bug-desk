@@ -2,6 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/verify.server";
 import { createBugReport, normalizeSubmitBody } from "./create";
+import {
+  memoryGetBug,
+  memoryGetStats,
+  memoryListBugs,
+  memoryUpdateBug,
+  memoryCount,
+} from "./memory-store";
 import type {
   BugFilters,
   BugReport,
@@ -169,44 +176,56 @@ function buildWhere(filters: BugFilters) {
 export const listBugs = createServerFn({ method: "GET" })
   .validator((data?: BugFilters) => data ?? {})
   .handler(async ({ data }) => {
-    const sql = await getSql();
     const filters = data ?? {};
-    const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
-    const offset = Math.max(filters.offset ?? 0, 0);
-    const { where, params, next } = buildWhere(filters);
+    try {
+      const sql = await getSql();
+      const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+      const offset = Math.max(filters.offset ?? 0, 0);
+      const { where, params, next } = buildWhere(filters);
 
-    let order = "created_at desc";
-    if (filters.sort === "oldest") order = "created_at asc";
-    if (filters.sort === "severity")
-      order =
-        "case severity when 'critical' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at desc";
+      let order = "created_at desc";
+      if (filters.sort === "oldest") order = "created_at asc";
+      if (filters.sort === "severity")
+        order =
+          "case severity when 'critical' then 0 when 'high' then 1 when 'medium' then 2 else 3 end, created_at desc";
 
-    const countRows = await sql.query<{ count: number }>(
-      `select count(*)::int as count from bug_reports where ${where}`,
-      params,
-    );
-    const total = countRows[0]?.count ?? 0;
+      const countRows = await sql.query<{ count: number }>(
+        `select count(*)::int as count from bug_reports where ${where}`,
+        params,
+      );
+      const total = countRows[0]?.count ?? 0;
 
-    const rows = await sql.query<BugRow>(
-      `select * from bug_reports where ${where} order by ${order} limit $${next} offset $${next + 1}`,
-      [...params, limit, offset],
-    );
+      const rows = await sql.query<BugRow>(
+        `select * from bug_reports where ${where} order by ${order} limit $${next} offset $${next + 1}`,
+        [...params, limit, offset],
+      );
 
-    return {
-      items: rows.map(mapRow),
-      total,
-      limit,
-      offset,
-    };
+      return {
+        items: rows.map(mapRow),
+        total,
+        limit,
+        offset,
+      };
+    } catch (err) {
+      console.warn(
+        "[bugs] listBugs SQL failed — memory store:",
+        err instanceof Error ? err.message : err,
+      );
+      return memoryListBugs(filters);
+    }
   });
 
 export const getBug = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(async ({ data: id }) => {
-    const sql = await getSql();
-    const rows = await sql<BugRow>`select * from bug_reports where id = ${id}`;
-    if (!rows[0]) return null;
-    return mapRow(rows[0]);
+    try {
+      const sql = await getSql();
+      const rows = await sql<BugRow>`select * from bug_reports where id = ${id}`;
+      if (!rows[0]) return null;
+      return mapRow(rows[0]);
+    } catch {
+      return memoryGetBug(id);
+    }
   });
 
 export type UpdateBugInput = {
@@ -224,117 +243,168 @@ export const updateBug = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
-    const sql = await getSql();
-    const existing = await sql<BugRow>`
-      select * from bug_reports where id = ${data.id}
-    `;
-    if (!existing[0]) throw new Error("Not found");
+    try {
+      const sql = await getSql();
+      const existing = await sql<BugRow>`
+        select * from bug_reports where id = ${data.id}
+      `;
+      if (!existing[0]) throw new Error("Not found");
 
-    const status = data.status ?? existing[0].status;
-    const severity = data.severity ?? existing[0].severity;
-    const adminNotes =
-      data.adminNotes !== undefined
-        ? data.adminNotes
-        : (existing[0].admin_notes ?? "");
-    const hoursEstimated =
-      data.hoursEstimated !== undefined
-        ? data.hoursEstimated
-        : existing[0].hours_estimated;
-    const hoursActual =
-      data.hoursActual !== undefined
-        ? data.hoursActual
-        : existing[0].hours_actual;
+      const status = data.status ?? existing[0].status;
+      const severity = data.severity ?? existing[0].severity;
+      const adminNotes =
+        data.adminNotes !== undefined
+          ? data.adminNotes
+          : (existing[0].admin_notes ?? "");
+      const hoursEstimated =
+        data.hoursEstimated !== undefined
+          ? data.hoursEstimated
+          : existing[0].hours_estimated;
+      const hoursActual =
+        data.hoursActual !== undefined
+          ? data.hoursActual
+          : existing[0].hours_actual;
 
-    await sql`
-      update bug_reports set
-        status = ${status},
-        severity = ${severity},
-        admin_notes = ${adminNotes},
-        hours_estimated = ${hoursEstimated},
-        hours_actual = ${hoursActual},
-        updated_at = now()
-      where id = ${data.id}
-    `;
+      await sql`
+        update bug_reports set
+          status = ${status},
+          severity = ${severity},
+          admin_notes = ${adminNotes},
+          hours_estimated = ${hoursEstimated},
+          hours_actual = ${hoursActual},
+          updated_at = now()
+        where id = ${data.id}
+      `;
 
-    const rows = await sql<BugRow>`select * from bug_reports where id = ${data.id}`;
-    return mapRow(rows[0]);
+      const rows = await sql<BugRow>`select * from bug_reports where id = ${data.id}`;
+      return mapRow(rows[0]);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Not found") throw err;
+      console.warn(
+        "[bugs] updateBug SQL failed — memory store:",
+        err instanceof Error ? err.message : err,
+      );
+      return memoryUpdateBug(data);
+    }
   });
 
 export const getBugStats = createServerFn({ method: "GET" }).handler(
   async (): Promise<BugStats> => {
-    const sql = await getSql();
-    const totals = await sql<{
-      total: number;
-      open: number;
-      members: number;
-      guests: number;
-    }>`
-      select
-        count(*)::int as total,
-        count(*) filter (where status not in ('resolved','wont_fix','duplicate'))::int as open,
-        count(*) filter (where is_member)::int as members,
-        count(*) filter (where not is_member)::int as guests
-      from bug_reports
-    `;
-    const bySite = await sql<{ site_id: string; count: number }>`
-      select site_id, count(*)::int as count from bug_reports group by site_id order by count desc
-    `;
-    const byStatus = await sql<{ status: string; count: number }>`
-      select status, count(*)::int as count from bug_reports group by status order by count desc
-    `;
-    const bySeverity = await sql<{ severity: string; count: number }>`
-      select severity, count(*)::int as count from bug_reports group by severity order by count desc
-    `;
-    return {
-      total: totals[0]?.total ?? 0,
-      open: totals[0]?.open ?? 0,
-      members: totals[0]?.members ?? 0,
-      guests: totals[0]?.guests ?? 0,
-      bySite: bySite.map((r) => ({ siteId: r.site_id, count: r.count })),
-      byStatus: byStatus.map((r) => ({ status: r.status, count: r.count })),
-      bySeverity: bySeverity.map((r) => ({
-        severity: r.severity,
-        count: r.count,
-      })),
-    };
+    try {
+      const sql = await getSql();
+      const totals = await sql<{
+        total: number;
+        open: number;
+        members: number;
+        guests: number;
+      }>`
+        select
+          count(*)::int as total,
+          count(*) filter (where status not in ('resolved','wont_fix','duplicate'))::int as open,
+          count(*) filter (where is_member)::int as members,
+          count(*) filter (where not is_member)::int as guests
+        from bug_reports
+      `;
+      const bySite = await sql<{ site_id: string; count: number }>`
+        select site_id, count(*)::int as count from bug_reports group by site_id order by count desc
+      `;
+      const byStatus = await sql<{ status: string; count: number }>`
+        select status, count(*)::int as count from bug_reports group by status order by count desc
+      `;
+      const bySeverity = await sql<{ severity: string; count: number }>`
+        select severity, count(*)::int as count from bug_reports group by severity order by count desc
+      `;
+      return {
+        total: totals[0]?.total ?? 0,
+        open: totals[0]?.open ?? 0,
+        members: totals[0]?.members ?? 0,
+        guests: totals[0]?.guests ?? 0,
+        bySite: bySite.map((r) => ({ siteId: r.site_id, count: r.count })),
+        byStatus: byStatus.map((r) => ({ status: r.status, count: r.count })),
+        bySeverity: bySeverity.map((r) => ({
+          severity: r.severity,
+          count: r.count,
+        })),
+      };
+    } catch (err) {
+      console.warn(
+        "[bugs] getBugStats SQL failed — memory store:",
+        err instanceof Error ? err.message : err,
+      );
+      return memoryGetStats();
+    }
   },
 );
 
 export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
   async () => {
-    const sql = await getSql();
-    const existing = await sql<{ count: number }>`
-      select count(*)::int as count from bug_reports
-    `;
-    if ((existing[0]?.count ?? 0) > 0) return { seeded: false, count: existing[0].count };
+    try {
+      const sql = await getSql();
+      const existing = await sql<{ count: number }>`
+        select count(*)::int as count from bug_reports
+      `;
+      if ((existing[0]?.count ?? 0) > 0)
+        return { seeded: false, count: existing[0].count };
 
-    await createBugReport({
-      siteId: "onemission",
-      type: "bug",
-      severity: "high",
-      title: "Cmd Cntr Bugs tab showed empty / unclear reports",
-      description:
-        "Steward could not read submitted bugs from the old FormSubmit + local inbox path. Need durable multi-site desk.",
-      steps: "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
-      isMember: true,
-      reporterName: "Steward",
-      reporterEmail: "tharpster@intekspace.com",
-      pageUrl: "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
-    });
-    await createBugReport({
-      siteId: "intekspace",
-      type: "feature",
-      severity: "medium",
-      title: "Guest wants clearer project apply card",
-      description:
-        "Non-member visitor could not tell how to apply to Intek Space education projects from the landing.",
-      isMember: false,
-      reporterName: "Guest",
-      pageUrl: "https://intekspace.com/",
-    });
-    const after = await sql<{ count: number }>`
-      select count(*)::int as count from bug_reports
-    `;
-    return { seeded: true, count: after[0]?.count ?? 0 };
+      await createBugReport({
+        siteId: "onemission",
+        type: "bug",
+        severity: "high",
+        title: "Cmd Cntr Bugs tab showed empty / unclear reports",
+        description:
+          "Steward could not read submitted bugs from the old FormSubmit + local inbox path. Need durable multi-site desk.",
+        steps:
+          "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
+        isMember: true,
+        reporterName: "Steward",
+        reporterEmail: "tharpster@intekspace.com",
+        pageUrl:
+          "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
+      });
+      await createBugReport({
+        siteId: "intekspace",
+        type: "feature",
+        severity: "medium",
+        title: "Guest wants clearer project apply card",
+        description:
+          "Non-member visitor could not tell how to apply to Intek Space education projects from the landing.",
+        isMember: false,
+        reporterName: "Guest",
+        pageUrl: "https://intekspace.com/",
+      });
+      const after = await sql<{ count: number }>`
+        select count(*)::int as count from bug_reports
+      `;
+      return { seeded: true, count: after[0]?.count ?? 0 };
+    } catch {
+      if (memoryCount() > 0) return { seeded: false, count: memoryCount() };
+      await createBugReport({
+        siteId: "onemission",
+        type: "bug",
+        severity: "high",
+        title: "Cmd Cntr Bugs tab showed empty / unclear reports",
+        description:
+          "Steward could not read submitted bugs from the old FormSubmit + local inbox path. Need durable multi-site desk.",
+        steps:
+          "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
+        isMember: true,
+        reporterName: "Steward",
+        reporterEmail: "tharpster@intekspace.com",
+        pageUrl:
+          "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
+      });
+      await createBugReport({
+        siteId: "intekspace",
+        type: "feature",
+        severity: "medium",
+        title: "Guest wants clearer project apply card",
+        description:
+          "Non-member visitor could not tell how to apply to Intek Space education projects from the landing.",
+        isMember: false,
+        reporterName: "Guest",
+        pageUrl: "https://intekspace.com/",
+      });
+      return { seeded: true, count: memoryCount() };
+    }
   },
 );
