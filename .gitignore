@@ -1,0 +1,17 @@
+node_modules/
+.vercel/
+dist/
+.output/
+.nitro/
+.tanstack/
+screenshots/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+.grok/
+vendor/
+AGENTS.md
+.node_modules.lock
+scripts/test-bug-flow.mjs
