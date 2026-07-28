@@ -1,15 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/verify.server";
-import { uid } from "@/lib/utils";
+import { createBugReport, normalizeSubmitBody } from "./create";
 import type {
   BugFilters,
   BugReport,
   BugStats,
   BugStatus,
-  BugType,
   Severity,
-  SiteId,
 } from "./types";
 
 type BugRow = {
@@ -52,7 +50,7 @@ function mapRow(r: BugRow): BugReport {
   return {
     id: r.id,
     siteId: r.site_id,
-    type: r.type as BugType,
+    type: r.type as BugReport["type"],
     status: r.status as BugStatus,
     severity: r.severity as Severity,
     title: r.title,
@@ -84,7 +82,7 @@ function mapRow(r: BugRow): BugReport {
 
 export type SubmitBugInput = {
   siteId: string;
-  type: BugType;
+  type: BugReport["type"];
   severity: Severity;
   title: string;
   description: string;
@@ -106,73 +104,29 @@ export type SubmitBugInput = {
 
 export const submitBug = createServerFn({ method: "POST" })
   .validator((data: SubmitBugInput) => {
-    const title = (data.title ?? "").trim();
-    const description = (data.description ?? "").trim();
-    if (title.length < 3) throw new Error("Title must be at least 3 characters");
-    if (description.length < 10)
-      throw new Error("Description must be at least 10 characters");
-    const siteId = (data.siteId || "other").trim();
-    const type = data.type || "bug";
-    const severity = data.severity || "medium";
-    if (!["bug", "feature", "other"].includes(type))
-      throw new Error("Invalid type");
-    if (!["low", "medium", "high", "critical"].includes(severity))
-      throw new Error("Invalid severity");
-    return {
-      ...data,
-      siteId,
-      type: type as BugType,
-      severity: severity as Severity,
-      title: title.slice(0, 200),
-      description: description.slice(0, 8000),
-      steps: (data.steps ?? "").trim().slice(0, 4000) || undefined,
-      expected: (data.expected ?? "").trim().slice(0, 2000) || undefined,
-      actual: (data.actual ?? "").trim().slice(0, 2000) || undefined,
-      reporterName: (data.reporterName ?? "").trim().slice(0, 120) || undefined,
-      reporterEmail: (data.reporterEmail ?? "").trim().slice(0, 200) || undefined,
-    };
+    return normalizeSubmitBody(data as unknown as Record<string, unknown>);
   })
   .handler(async ({ data }) => {
-    const sql = await getSql();
     let session: { id: string; email: string | null } | null = null;
     try {
       session = await getSessionUser();
     } catch {
       session = null;
     }
-    const isMember = Boolean(session?.id);
-    const userId = session?.id ?? null;
+    const isMember = Boolean(session?.id) || Boolean(data.isMember);
+    const userId = session?.id ?? data.userId ?? null;
     const reporterName =
       data.reporterName ||
       (isMember ? session?.email?.split("@")[0] || "Member" : "Guest");
     const reporterEmail = data.reporterEmail || session?.email || null;
-    const id = uid("bug");
 
-    const sites = await sql<{ id: string }>`
-      select id from sites where id = ${data.siteId}
-    `;
-    const siteId = (sites[0]?.id ?? "other") as SiteId;
-
-    await sql`
-      insert into bug_reports (
-        id, site_id, type, status, severity, title, description,
-        steps, expected, actual,
-        is_member, user_id, reporter_name, reporter_email,
-        page_url, page_title, user_agent, viewport, screen,
-        language, timezone, referrer, context_json
-      ) values (
-        ${id}, ${siteId}, ${data.type}, ${"new"}, ${data.severity},
-        ${data.title}, ${data.description},
-        ${data.steps ?? null}, ${data.expected ?? null}, ${data.actual ?? null},
-        ${isMember}, ${userId}, ${reporterName}, ${reporterEmail},
-        ${data.pageUrl ?? null}, ${data.pageTitle ?? null},
-        ${data.userAgent ?? null}, ${data.viewport ?? null}, ${data.screen ?? null},
-        ${data.language ?? null}, ${data.timezone ?? null},
-        ${data.referrer ?? null}, ${data.contextJson ?? null}
-      )
-    `;
-
-    return { id, isMember };
+    return createBugReport({
+      ...data,
+      isMember,
+      userId,
+      reporterName,
+      reporterEmail,
+    });
   });
 
 function buildWhere(filters: BugFilters) {
@@ -281,19 +235,15 @@ export const updateBug = createServerFn({ method: "POST" })
     const adminNotes =
       data.adminNotes !== undefined
         ? data.adminNotes
-        : existing[0].admin_notes;
+        : (existing[0].admin_notes ?? "");
     const hoursEstimated =
       data.hoursEstimated !== undefined
         ? data.hoursEstimated
-        : existing[0].hours_estimated == null
-          ? null
-          : Number(existing[0].hours_estimated);
+        : existing[0].hours_estimated;
     const hoursActual =
       data.hoursActual !== undefined
         ? data.hoursActual
-        : existing[0].hours_actual == null
-          ? null
-          : Number(existing[0].hours_actual);
+        : existing[0].hours_actual;
 
     await sql`
       update bug_reports set
@@ -307,45 +257,44 @@ export const updateBug = createServerFn({ method: "POST" })
     `;
 
     const rows = await sql<BugRow>`select * from bug_reports where id = ${data.id}`;
-    return mapRow(rows[0]!);
+    return mapRow(rows[0]);
   });
 
 export const getBugStats = createServerFn({ method: "GET" }).handler(
   async (): Promise<BugStats> => {
     const sql = await getSql();
-    const totalRows = await sql<{ c: number }>`
-      select count(*)::int as c from bug_reports
+    const totals = await sql<{
+      total: number;
+      open: number;
+      members: number;
+      guests: number;
+    }>`
+      select
+        count(*)::int as total,
+        count(*) filter (where status not in ('resolved','wont_fix','duplicate'))::int as open,
+        count(*) filter (where is_member)::int as members,
+        count(*) filter (where not is_member)::int as guests
+      from bug_reports
     `;
-    const openRows = await sql<{ c: number }>`
-      select count(*)::int as c from bug_reports
-      where status not in ('resolved', 'wont_fix', 'duplicate')
+    const bySite = await sql<{ site_id: string; count: number }>`
+      select site_id, count(*)::int as count from bug_reports group by site_id order by count desc
     `;
-    const memberRows = await sql<{ c: number }>`
-      select count(*)::int as c from bug_reports where is_member = true
+    const byStatus = await sql<{ status: string; count: number }>`
+      select status, count(*)::int as count from bug_reports group by status order by count desc
     `;
-    const guestRows = await sql<{ c: number }>`
-      select count(*)::int as c from bug_reports where is_member = false
+    const bySeverity = await sql<{ severity: string; count: number }>`
+      select severity, count(*)::int as count from bug_reports group by severity order by count desc
     `;
-    const bySite = await sql<{ site_id: string; c: number }>`
-      select site_id, count(*)::int as c from bug_reports group by site_id order by c desc
-    `;
-    const byStatus = await sql<{ status: string; c: number }>`
-      select status, count(*)::int as c from bug_reports group by status
-    `;
-    const bySeverity = await sql<{ severity: string; c: number }>`
-      select severity, count(*)::int as c from bug_reports group by severity
-    `;
-
     return {
-      total: totalRows[0]?.c ?? 0,
-      open: openRows[0]?.c ?? 0,
-      members: memberRows[0]?.c ?? 0,
-      guests: guestRows[0]?.c ?? 0,
-      bySite: bySite.map((r) => ({ siteId: r.site_id, count: r.c })),
-      byStatus: byStatus.map((r) => ({ status: r.status, count: r.c })),
+      total: totals[0]?.total ?? 0,
+      open: totals[0]?.open ?? 0,
+      members: totals[0]?.members ?? 0,
+      guests: totals[0]?.guests ?? 0,
+      bySite: bySite.map((r) => ({ siteId: r.site_id, count: r.count })),
+      byStatus: byStatus.map((r) => ({ status: r.status, count: r.count })),
       bySeverity: bySeverity.map((r) => ({
         severity: r.severity,
-        count: r.c,
+        count: r.count,
       })),
     };
   },
@@ -354,151 +303,38 @@ export const getBugStats = createServerFn({ method: "GET" }).handler(
 export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
   async () => {
     const sql = await getSql();
-    const existing = await sql<{ c: number }>`
-      select count(*)::int as c from bug_reports
+    const existing = await sql<{ count: number }>`
+      select count(*)::int as count from bug_reports
     `;
-    if ((existing[0]?.c ?? 0) > 0) {
-      return { seeded: false, count: existing[0]!.c };
-    }
+    if ((existing[0]?.count ?? 0) > 0) return { seeded: false, count: existing[0].count };
 
-    const samples: Array<{
-      site: string;
-      type: BugType;
-      severity: Severity;
-      status: BugStatus;
-      title: string;
-      description: string;
-      isMember: boolean;
-      name: string;
-      email: string | null;
-      page: string;
-      steps?: string;
-    }> = [
-      {
-        site: "onemission",
-        type: "bug",
-        severity: "high",
-        status: "new",
-        title: "Education Exchange form age band still shown on mobile",
-        description:
-          "After the age-band to exact-age change, mobile Safari still shows the old age band select on first paint, then swaps to a number input. Looks like a hydration flash.",
-        isMember: true,
-        name: "Maya Chen",
-        email: "maya@example.com",
-        page: "https://intekspace.com/education-apply.html",
-        steps:
-          "1. Open Education apply on iPhone\n2. Select any track\n3. Scroll to age field",
-      },
-      {
-        site: "intekspace",
-        type: "feature",
-        severity: "medium",
-        status: "triaged",
-        title: "Project card application needs resume upload",
-        description:
-          "Applicants for Interspecies Communication Systems want to attach a short resume or portfolio link. A single optional URL field would help triage.",
-        isMember: false,
-        name: "Guest",
-        email: null,
-        page: "https://intekspace.com/education.html",
-      },
-      {
-        site: "onemission",
-        type: "bug",
-        severity: "critical",
-        status: "in_progress",
-        title: "Bug / idea button email send fails without message body",
-        description:
-          "FormSubmit succeeds but the steward inbox only shows subject and page URL — description field is empty when reporter uses autofill and leaves details sparse. Need structured required fields.",
-        isMember: false,
-        name: "Anonymous",
-        email: "reporter@mail.com",
-        page: "https://onemissionnetworkandinstitute.org/court.html",
-      },
-      {
-        site: "imi",
-        type: "bug",
-        severity: "low",
-        status: "new",
-        title: "Spaces archive video poster missing on slow networks",
-        description:
-          "Poster image never loads when the connection drops mid-fetch. Empty black square remains. Suggest a fallback poster color plus retry.",
-        isMember: true,
-        name: "Jordan Lee",
-        email: "jordan@example.com",
-        page: "https://instituteofmatureimagination.org/",
-      },
-      {
-        site: "onemission",
-        type: "feature",
-        severity: "medium",
-        status: "new",
-        title: "Unified bug dashboard across all mirror sites",
-        description:
-          "Steward cannot sort member vs non-member reports from a single view. Need one admin surface for OMNI, Intek, and IMI.",
-        isMember: true,
-        name: "thePuzzler",
-        email: "tharpster@intekflow.com",
-        page: "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
-      },
-      {
-        site: "intekspace",
-        type: "other",
-        severity: "low",
-        status: "resolved",
-        title: "Footer year still shows 2025 on some pages",
-        description: "Static footer year was hard-coded. Fixed in last deploy.",
-        isMember: false,
-        name: "Visitor",
-        email: null,
-        page: "https://intekspace.com/",
-      },
-      {
-        site: "onemission",
-        type: "bug",
-        severity: "high",
-        status: "triaged",
-        title: "Cmd Cntr Bugs tab local inbox empty after FormSubmit",
-        description:
-          "Reports arrive by email but never appear in Admin Bugs local inbox. localStorage is device-bound; no durable cross-device inbox.",
-        isMember: true,
-        name: "Steward device B",
-        email: "steward@onemission.network",
-        page: "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
-      },
-      {
-        site: "other",
-        type: "bug",
-        severity: "medium",
-        status: "new",
-        title: "Embed widget CORS block when loaded from third-party origin",
-        description:
-          "Embedding the green report button on a partner domain fails preflight. Need a public POST endpoint with CORS for partner sites.",
-        isMember: false,
-        name: "Partner dev",
-        email: "dev@partner.org",
-        page: "https://partner.example/demo",
-      },
-    ];
-
-    for (const s of samples) {
-      const id = uid("seed");
-      await sql`
-        insert into bug_reports (
-          id, site_id, type, status, severity, title, description, steps,
-          is_member, reporter_name, reporter_email, page_url, page_title,
-          user_agent, viewport, language, timezone
-        ) values (
-          ${id}, ${s.site}, ${s.type}, ${s.status}, ${s.severity},
-          ${s.title}, ${s.description}, ${s.steps ?? null},
-          ${s.isMember}, ${s.name}, ${s.email},
-          ${s.page}, ${"Demo page"},
-          ${"Mozilla/5.0 (demo) AppleWebKit/537.36"},
-          ${"1440x900"}, ${"en-US"}, ${"America/New_York"}
-        )
-      `;
-    }
-
-    return { seeded: true, count: samples.length };
+    await createBugReport({
+      siteId: "onemission",
+      type: "bug",
+      severity: "high",
+      title: "Cmd Cntr Bugs tab showed empty / unclear reports",
+      description:
+        "Steward could not read submitted bugs from the old FormSubmit + local inbox path. Need durable multi-site desk.",
+      steps: "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
+      isMember: true,
+      reporterName: "Steward",
+      reporterEmail: "tharpster@intekspace.com",
+      pageUrl: "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
+    });
+    await createBugReport({
+      siteId: "intekspace",
+      type: "feature",
+      severity: "medium",
+      title: "Guest wants clearer project apply card",
+      description:
+        "Non-member visitor could not tell how to apply to Intek Space education projects from the landing.",
+      isMember: false,
+      reporterName: "Guest",
+      pageUrl: "https://intekspace.com/",
+    });
+    const after = await sql<{ count: number }>`
+      select count(*)::int as count from bug_reports
+    `;
+    return { seeded: true, count: after[0]?.count ?? 0 };
   },
 );

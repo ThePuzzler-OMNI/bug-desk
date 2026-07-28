@@ -1,0 +1,9 @@
+{
+  "target": "production",
+  "name": "bug-desk",
+  "teamId": "team_VLyLieZPkShaR7hJ4Uq9pPdj",
+  "projectSettings": {
+    "buildCommand": "tar -xzf sources.tgz && npm run build",
+    "installCommand": "npm install"
+  }
+}

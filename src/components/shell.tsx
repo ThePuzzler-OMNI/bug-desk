@@ -12,6 +12,9 @@ const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
 ] as const;
 
+const CMD_CNTR =
+  "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html#bugs";
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isPending } = useCurrentUserState();
@@ -49,6 +52,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   </Link>
                 );
               })}
+              <a
+                href={CMD_CNTR}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-[var(--radius-sm)] px-3 py-1.5 text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+              >
+                Cmd Cntr
+              </a>
             </nav>
           </div>
 
@@ -94,13 +105,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   {item.label}
                 </Link>
               ))}
+              <a
+                href={CMD_CNTR}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-[var(--radius-sm)] px-3 py-2.5 text-sm text-[var(--color-muted)]"
+              >
+                Cmd Cntr
+              </a>
             </div>
           </nav>
         )}
       </header>
       <main className="flex-1">{children}</main>
       <footer className="border-t border-[var(--color-border)] py-6 text-center text-xs text-[var(--color-subtle)]">
-        Multi-site bug desk · members and guests · one steward view
+        Multi-site bug desk · members and guests · wired to Admin · One Mission
       </footer>
     </div>
   );

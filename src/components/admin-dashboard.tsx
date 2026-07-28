@@ -8,6 +8,7 @@ import {
   UserX,
   Inbox,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -48,8 +49,19 @@ function siteName(id: string) {
   return SITES.find((s) => s.id === id)?.name ?? id;
 }
 
-export function AdminDashboard() {
+export function AdminDashboard({
+  initialSiteId,
+  initialIsMember,
+}: {
+  initialSiteId?: string;
+  initialIsMember?: boolean | null;
+}) {
   const [filters, setFilters] = useState<BugFilters>({
+    siteId: initialSiteId && initialSiteId !== "all" ? initialSiteId : undefined,
+    isMember:
+      initialIsMember === true || initialIsMember === false
+        ? initialIsMember
+        : null,
     sort: "newest",
     limit: 50,
     offset: 0,
@@ -129,6 +141,17 @@ export function AdminDashboard() {
           <p className="mt-1 text-sm text-[var(--color-muted)]">
             Sort and sift member vs guest reports across every site.
           </p>
+          <p className="mt-2 text-xs text-[var(--color-subtle)]">
+            Wired from{" "}
+            <a
+              className="underline hover:text-[var(--color-fg)]"
+              href="https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html#bugs"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Admin · One Mission → Bugs
+            </a>
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => void load()}>
@@ -178,36 +201,20 @@ export function AdminDashboard() {
       )}
 
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm font-medium text-[var(--color-muted)]">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
             <Filter className="h-4 w-4" /> Filters
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <div className="grid gap-1 lg:col-span-2">
-            <Label>Search</Label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-subtle)]" />
-              <Input
-                className="pl-9"
-                placeholder="Title, URL, reporter…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter")
-                    setFilters((f) => ({ ...f, q: q.trim(), offset: 0 }));
-                }}
-              />
-            </div>
-          </div>
-          <div className="grid gap-1">
+          <div>
             <Label>Site</Label>
             <Select
               value={filters.siteId ?? "all"}
               onChange={(e) =>
                 setFilters((f) => ({
                   ...f,
-                  siteId: e.target.value,
+                  siteId: e.target.value === "all" ? undefined : e.target.value,
                   offset: 0,
                 }))
               }
@@ -220,8 +227,8 @@ export function AdminDashboard() {
               ))}
             </Select>
           </div>
-          <div className="grid gap-1">
-            <Label>Member</Label>
+          <div>
+            <Label>Membership</Label>
             <Select
               value={
                 filters.isMember === true
@@ -240,24 +247,24 @@ export function AdminDashboard() {
                 }));
               }}
             >
-              <option value="all">All</option>
+              <option value="all">Members + guests</option>
               <option value="member">Members only</option>
               <option value="guest">Guests only</option>
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div>
             <Label>Status</Label>
             <Select
               value={filters.status ?? "all"}
               onChange={(e) =>
                 setFilters((f) => ({
                   ...f,
-                  status: e.target.value,
+                  status: e.target.value === "all" ? undefined : e.target.value,
                   offset: 0,
                 }))
               }
             >
-              <option value="all">All</option>
+              <option value="all">All statuses</option>
               {BUG_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {STATUS_LABELS[s]}
@@ -265,7 +272,48 @@ export function AdminDashboard() {
               ))}
             </Select>
           </div>
-          <div className="grid gap-1">
+          <div>
+            <Label>Type</Label>
+            <Select
+              value={filters.type ?? "all"}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  type: e.target.value === "all" ? undefined : e.target.value,
+                  offset: 0,
+                }))
+              }
+            >
+              <option value="all">All types</option>
+              {BUG_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TYPE_LABELS[t]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>Severity</Label>
+            <Select
+              value={filters.severity ?? "all"}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  severity:
+                    e.target.value === "all" ? undefined : e.target.value,
+                  offset: 0,
+                }))
+              }
+            >
+              <option value="all">All severities</option>
+              {SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {SEVERITY_LABELS[s]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
             <Label>Sort</Label>
             <Select
               value={filters.sort ?? "newest"}
@@ -282,253 +330,241 @@ export function AdminDashboard() {
               <option value="severity">Severity</option>
             </Select>
           </div>
-          <div className="grid gap-1 sm:col-span-2 lg:col-span-6 lg:flex lg:items-end lg:justify-between">
-            <div className="flex flex-wrap gap-2">
-              <Select
-                value={filters.type ?? "all"}
-                onChange={(e) =>
-                  setFilters((f) => ({
-                    ...f,
-                    type: e.target.value,
-                    offset: 0,
-                  }))
-                }
-                className="w-auto min-w-[8rem]"
-              >
-                <option value="all">All types</option>
-                {BUG_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={filters.severity ?? "all"}
-                onChange={(e) =>
-                  setFilters((f) => ({
-                    ...f,
-                    severity: e.target.value,
-                    offset: 0,
-                  }))
-                }
-                className="w-auto min-w-[8rem]"
-              >
-                <option value="all">All severities</option>
-                {SEVERITIES.map((s) => (
-                  <option key={s} value={s}>
-                    {SEVERITY_LABELS[s]}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setFilters((f) => ({ ...f, q: q.trim(), offset: 0 }))
-                }
-              >
-                Apply search
-              </Button>
+          <div className="sm:col-span-2 lg:col-span-6 flex flex-wrap gap-2">
+            <div className="relative min-w-[12rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-subtle)]" />
+              <Input
+                className="pl-9"
+                placeholder="Search title, description, reporter, URL…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setFilters((f) => ({ ...f, q: q.trim() || undefined, offset: 0 }));
+                  }
+                }}
+              />
             </div>
-            <p className="text-xs text-[var(--color-subtle)]">
-              {total} matching · showing {items.length}
-            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                setFilters((f) => ({ ...f, q: q.trim() || undefined, offset: 0 }))
+              }
+            >
+              Apply search
+            </Button>
           </div>
         </CardContent>
       </Card>
 
       {error && (
-        <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+        <div className="rounded-[var(--radius-md)] border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="space-y-2">
-          {loading && items.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-[var(--color-muted)]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Loading reports…
-            </div>
-          ) : items.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center text-sm text-[var(--color-muted)]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
+        <Card className="overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-[var(--color-border)] py-3">
+            <CardTitle className="text-base">
+              Reports{" "}
+              <span className="font-normal text-[var(--color-muted)]">
+                ({total})
+              </span>
+            </CardTitle>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          </CardHeader>
+          <CardContent className="p-0">
+            {items.length === 0 && !loading ? (
+              <p className="p-6 text-sm text-[var(--color-muted)]">
                 No reports match these filters.
-              </CardContent>
-            </Card>
-          ) : (
-            items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSelected(item)}
-                className={cn(
-                  "w-full rounded-[var(--radius-lg)] border p-4 text-left transition-colors",
-                  selected?.id === item.id
-                    ? "border-[var(--color-border-strong)] bg-[var(--color-elevated)]"
-                    : "border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-border-strong)]",
-                )}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant={item.isMember ? "member" : "guest"}>
-                        {item.isMember ? "Member" : "Guest"}
-                      </Badge>
-                      <Badge variant={severityVariant(item.severity)}>
-                        {SEVERITY_LABELS[item.severity]}
-                      </Badge>
-                      <Badge>{TYPE_LABELS[item.type]}</Badge>
-                      <Badge variant="default">
-                        {STATUS_LABELS[item.status]}
-                      </Badge>
-                    </div>
-                    <h3 className="mt-2 text-sm font-semibold leading-snug">
-                      {item.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-[var(--color-muted)]">
-                      {item.description}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-subtle)]">
-                    {formatRelative(item.createdAt)}
-                  </span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--color-subtle)]">
-                  <span>{siteName(item.siteId)}</span>
-                  {item.reporterName && <span>{item.reporterName}</span>}
-                  {item.pageUrl && (
-                    <span className="max-w-[220px] truncate font-mono">
-                      {item.pageUrl.replace(/^https?:\/\//, "")}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+              </p>
+            ) : (
+              <ul className="divide-y divide-[var(--color-border)]">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(item)}
+                      className={cn(
+                        "flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-[var(--color-elevated)]",
+                        selected?.id === item.id && "bg-[var(--color-elevated)]",
+                      )}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={severityVariant(item.severity)}>
+                          {SEVERITY_LABELS[item.severity]}
+                        </Badge>
+                        <Badge variant={item.isMember ? "member" : "guest"}>
+                          {item.isMember ? "Member" : "Guest"}
+                        </Badge>
+                        <Badge variant="info">{TYPE_LABELS[item.type]}</Badge>
 
-        <div className="lg:sticky lg:top-20 lg:self-start">
-          {selected ? (
-            <Card>
-              <CardHeader>
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant={selected.isMember ? "member" : "guest"}>
-                    {selected.isMember ? "Member" : "Guest"}
-                  </Badge>
-                  <Badge variant={severityVariant(selected.severity)}>
-                    {SEVERITY_LABELS[selected.severity]}
-                  </Badge>
+                        <span className="text-xs text-[var(--color-subtle)]">
+                          {STATUS_LABELS[item.status]}
+                        </span>
+                      </div>
+                      <div className="font-medium leading-snug">{item.title}</div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--color-muted)]">
+                        <span>{siteName(item.siteId)}</span>
+                        <span>{formatRelative(item.createdAt)}</span>
+                        {item.reporterName && <span>{item.reporterName}</span>}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="h-fit lg:sticky lg:top-20">
+          <CardHeader className="border-b border-[var(--color-border)] py-3">
+            <CardTitle className="text-base">
+              {selected ? "Detail" : "Select a report"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 text-sm">
+            {!selected ? (
+              <p className="text-[var(--color-muted)]">
+                Click a row to review full context, update status, and leave notes.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <h3 className="text-base font-semibold leading-snug">
+                    {selected.title}
+                  </h3>
+                  <p className="mt-2 whitespace-pre-wrap text-[var(--color-muted)]">
+                    {selected.description}
+                  </p>
                 </div>
-                <CardTitle className="text-base leading-snug">
-                  {selected.title}
-                </CardTitle>
-                <p className="font-mono text-[11px] text-[var(--color-subtle)]">
-                  {selected.id}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                <p className="whitespace-pre-wrap text-[var(--color-muted)]">
-                  {selected.description}
-                </p>
+                <div className="grid gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-xs">
+                  <Row k="Site" v={siteName(selected.siteId)} />
+                  <Row
+                    k="Membership"
+                    v={selected.isMember ? "Member" : "Guest"}
+                  />
+                  <Row k="Reporter" v={selected.reporterName || "—"} />
+                  <Row k="Email" v={selected.reporterEmail || "—"} />
+                  <Row
+                    k="Page"
+                    v={
+                      selected.pageUrl ? (
+                        <a
+                          href={selected.pageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sky-400 underline"
+                        >
+                          Open <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        "—"
+                      )
+                    }
+                  />
+                  <Row k="Viewport" v={selected.viewport || "—"} />
+                  <Row k="UA" v={selected.userAgent || "—"} />
+                  <Row k="TZ" v={selected.timezone || "—"} />
+                  <Row k="Created" v={new Date(selected.createdAt).toLocaleString()} />
+                </div>
                 {selected.steps && (
-                  <Block label="Steps">{selected.steps}</Block>
+                  <div>
+                    <div className="text-xs font-medium text-[var(--color-muted)]">
+                      Steps
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap">{selected.steps}</p>
+                  </div>
                 )}
                 {(selected.expected || selected.actual) && (
-                  <div className="grid gap-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {selected.expected && (
-                      <Block label="Expected">{selected.expected}</Block>
+                      <div>
+                        <div className="text-xs font-medium text-[var(--color-muted)]">
+                          Expected
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap">
+                          {selected.expected}
+                        </p>
+                      </div>
                     )}
                     {selected.actual && (
-                      <Block label="Actual">{selected.actual}</Block>
+                      <div>
+                        <div className="text-xs font-medium text-[var(--color-muted)]">
+                          Actual
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap">
+                          {selected.actual}
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
-                <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-xs">
-                  <p className="mb-2 font-medium text-[var(--color-muted)]">
-                    Context
-                  </p>
-                  <dl className="grid gap-1.5">
-                    <Row k="Site" v={siteName(selected.siteId)} />
-                    <Row k="Reporter" v={selected.reporterName ?? "—"} />
-                    <Row k="Email" v={selected.reporterEmail ?? "—"} />
-                    <Row k="Page" v={selected.pageUrl ?? "—"} mono />
-                    <Row k="Viewport" v={selected.viewport ?? "—"} />
-                    <Row k="Timezone" v={selected.timezone ?? "—"} />
-                    <Row
-                      k="UA"
-                      v={(selected.userAgent ?? "—").slice(0, 100)}
-                      mono
-                    />
-                    <Row
-                      k="Created"
-                      v={new Date(selected.createdAt).toLocaleString()}
-                    />
-                  </dl>
+                <div>
+                  <Label>Status</Label>
+                  <Select
+                    value={selected.status}
+                    disabled={saving}
+                    onChange={(e) =>
+                      void patchSelected({
+                        status: e.target.value as BugStatus,
+                      })
+                    }
+                  >
+                    {BUG_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
-
-                <div className="grid gap-3">
-                  <div className="grid gap-1.5">
-                    <Label>Status</Label>
-                    <Select
-                      value={selected.status}
-                      disabled={saving}
-                      onChange={(e) =>
-                        void patchSelected({
-                          status: e.target.value as BugStatus,
-                        })
-                      }
-                    >
-                      {BUG_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label>Severity</Label>
-                    <Select
-                      value={selected.severity}
-                      disabled={saving}
-                      onChange={(e) =>
-                        void patchSelected({
-                          severity: e.target.value as Severity,
-                        })
-                      }
-                    >
-                      {SEVERITIES.map((s) => (
-                        <option key={s} value={s}>
-                          {SEVERITY_LABELS[s]}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label>Steward notes</Label>
-                    <Textarea
-                      key={selected.id + "-notes"}
-                      defaultValue={selected.adminNotes}
-                      disabled={saving}
-                      placeholder="Internal notes…"
-                      onBlur={(e) => {
-                        if (e.target.value !== selected.adminNotes) {
-                          void patchSelected({ adminNotes: e.target.value });
-                        }
-                      }}
-                    />
-                  </div>
+                <div>
+                  <Label>Severity</Label>
+                  <Select
+                    value={selected.severity}
+                    disabled={saving}
+                    onChange={(e) =>
+                      void patchSelected({
+                        severity: e.target.value as Severity,
+                      })
+                    }
+                  >
+                    {SEVERITIES.map((s) => (
+                      <option key={s} value={s}>
+                        {SEVERITY_LABELS[s]}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="py-12 text-center text-sm text-[var(--color-muted)]">
-                Select a report to review context and update status.
-              </CardContent>
-            </Card>
-          )}
-        </div>
+                <div>
+                  <Label>Admin notes</Label>
+                  <Textarea
+                    defaultValue={selected.adminNotes}
+                    key={selected.id + selected.updatedAt}
+                    rows={3}
+                    onBlur={(e) => {
+                      if (e.target.value !== selected.adminNotes) {
+                        void patchSelected({ adminNotes: e.target.value });
+                      }
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
+    </div>
+  );
+}
+
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-20 shrink-0 text-[var(--color-subtle)]">{k}</span>
+      <span className="min-w-0 break-all">{v}</span>
     </div>
   );
 }
@@ -552,50 +588,18 @@ function StatCard({
         <span
           className={cn(
             "grid h-9 w-9 place-items-center rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)]",
-            accent === "member" && "text-[var(--color-member)]",
-            accent === "guest" && "text-[var(--color-guest)]",
+            accent === "member" && "text-emerald-400",
+            accent === "guest" && "text-amber-300",
           )}
         >
           <Icon className="h-4 w-4" />
         </span>
         <div>
-          <p className="text-xs text-[var(--color-muted)]">{label}</p>
-          <p className="text-2xl font-semibold tabular-nums tracking-tight">
-            {value}
-          </p>
-          <p className="text-[11px] text-[var(--color-subtle)]">{hint}</p>
+          <div className="text-xs text-[var(--color-muted)]">{label}</div>
+          <div className="text-2xl font-semibold tracking-tight">{value}</div>
+          <div className="text-xs text-[var(--color-subtle)]">{hint}</div>
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function Block({ label, children }: { label: string; children: string }) {
-  return (
-    <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--color-subtle)]">
-        {label}
-      </p>
-      <p className="whitespace-pre-wrap text-[var(--color-muted)]">{children}</p>
-    </div>
-  );
-}
-
-function Row({
-  k,
-  v,
-  mono,
-}: {
-  k: string;
-  v: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-[72px_1fr] gap-2">
-      <dt className="text-[var(--color-subtle)]">{k}</dt>
-      <dd className={cn("break-all text-[var(--color-muted)]", mono && "font-mono")}>
-        {v}
-      </dd>
-    </div>
   );
 }
