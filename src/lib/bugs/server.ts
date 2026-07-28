@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getSql } from "@/lib/db";
+import { getSql, usesMemoryBugStore } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth/verify.server";
 import { createBugReport, normalizeSubmitBody } from "./create";
 import {
@@ -177,6 +177,7 @@ export const listBugs = createServerFn({ method: "GET" })
   .validator((data?: BugFilters) => data ?? {})
   .handler(async ({ data }) => {
     const filters = data ?? {};
+    if (usesMemoryBugStore()) return memoryListBugs(filters);
     try {
       const sql = await getSql();
       const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
@@ -218,6 +219,7 @@ export const listBugs = createServerFn({ method: "GET" })
 export const getBug = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(async ({ data: id }) => {
+    if (usesMemoryBugStore()) return memoryGetBug(id);
     try {
       const sql = await getSql();
       const rows = await sql<BugRow>`select * from bug_reports where id = ${id}`;
@@ -243,6 +245,7 @@ export const updateBug = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
+    if (usesMemoryBugStore()) return memoryUpdateBug(data);
     try {
       const sql = await getSql();
       const existing = await sql<BugRow>`
@@ -290,6 +293,7 @@ export const updateBug = createServerFn({ method: "POST" })
 
 export const getBugStats = createServerFn({ method: "GET" }).handler(
   async (): Promise<BugStats> => {
+    if (usesMemoryBugStore()) return memoryGetStats();
     try {
       const sql = await getSql();
       const totals = await sql<{
@@ -338,6 +342,36 @@ export const getBugStats = createServerFn({ method: "GET" }).handler(
 
 export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
   async () => {
+    if (usesMemoryBugStore()) {
+      if (memoryCount() > 0) return { seeded: false, count: memoryCount() };
+      await createBugReport({
+        siteId: "onemission",
+        type: "bug",
+        severity: "high",
+        title: "Cmd Cntr Bugs tab showed empty / unclear reports",
+        description:
+          "Steward could not read submitted bugs from the old FormSubmit + local inbox path. Need durable multi-site desk.",
+        steps:
+          "1. User files bug via green button\n2. Open Admin · One Mission → Bugs\n3. Details missing",
+        isMember: true,
+        reporterName: "Steward",
+        reporterEmail: "techsupport@intekspace.com",
+        pageUrl:
+          "https://onemissionnetworkandinstitute.org/MasterPuzzlerCmdCntr.html",
+      });
+      await createBugReport({
+        siteId: "intekspace",
+        type: "feature",
+        severity: "medium",
+        title: "Guest wants clearer project apply card",
+        description:
+          "Non-member visitor could not tell how to apply to Intek Space education projects from the landing.",
+        isMember: false,
+        reporterName: "Guest",
+        pageUrl: "https://intekspace.com/",
+      });
+      return { seeded: true, count: memoryCount() };
+    }
     try {
       const sql = await getSql();
       const existing = await sql<{ count: number }>`

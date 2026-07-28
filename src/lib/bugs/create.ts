@@ -1,4 +1,4 @@
-import { getSql } from "@/lib/db";
+import { getSql, usesMemoryBugStore } from "@/lib/db";
 import { uid } from "@/lib/utils";
 import { memoryCreateBug } from "./memory-store";
 import type { BugType, Severity, SiteId } from "./types";
@@ -72,6 +72,9 @@ async function createBugReportSql(
 export async function createBugReport(
   data: CreateBugInput,
 ): Promise<CreateBugResult> {
+  if (usesMemoryBugStore()) {
+    return memoryCreateBug(data);
+  }
   try {
     return await createBugReportSql(data);
   } catch (err) {

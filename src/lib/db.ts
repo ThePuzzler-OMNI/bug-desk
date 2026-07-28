@@ -1,5 +1,5 @@
 /** Which database backend is active. */
-export type DbSource = "neon" | "pglite";
+export type DbSource = "neon" | "pglite" | "memory";
 
 // An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
 // "unset" — otherwise production would silently run on the PGLite fallback.
@@ -8,13 +8,22 @@ const rawDatabaseUrl =
 const databaseUrl =
   rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
 
+/** Vercel serverless cannot load PGLite wasm data assets (ENOENT pglite.data). */
+const onVercel =
+  typeof process !== "undefined" &&
+  (process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV));
+
 /**
- * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
- * sandbox), otherwise a local embedded **PGLite** (Postgres compiled to WASM) so
- * the app has a working database even with nothing configured — the live preview
- * included. Swap in Neon later by just setting `DATABASE_URL`; no code changes.
+ * Active backend:
+ * - **Neon** when `DATABASE_URL` is set
+ * - **PGLite** for local/preview (no DATABASE_URL, not Vercel)
+ * - **memory** on Vercel without DATABASE_URL (bugs use in-process store)
  */
-export const dbSource: DbSource = databaseUrl ? "neon" : "pglite";
+export const dbSource: DbSource = databaseUrl
+  ? "neon"
+  : onVercel
+    ? "memory"
+    : "pglite";
 
 /**
  * Minimal shared SQL surface, satisfied by both Neon and PGLite. Both the
@@ -176,7 +185,13 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
-  return dbSource === "neon" ? createNeonSql() : createPgliteSql();
+  if (dbSource === "neon") return createNeonSql();
+  if (dbSource === "memory") {
+    throw new Error(
+      "MEMORY_DB: no Postgres on this runtime — bug store uses memory fallback",
+    );
+  }
+  return createPgliteSql();
 }
 
 /**
@@ -222,6 +237,11 @@ export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite
 export function ensureDbReady(): Promise<void> {
   if (dbSource !== "pglite") return Promise.resolve();
   return getSql().then(() => undefined);
+}
+
+/** True when bugs should use the in-process memory store (no SQL). */
+export function usesMemoryBugStore(): boolean {
+  return dbSource === "memory";
 }
 
 // Server-only eager start: kick PGLite bootstrap as soon as this module loads in
