@@ -55,3 +55,26 @@ Optional auth env (platform injects for Grok apps):
 ## License
 
 Private / One Mission · Intek Inc.
+
+## Deploy (Vercel) — 60 seconds
+
+1. Open [vercel.com/new](https://vercel.com/new) signed into the steward account  
+2. **Import** `ThePuzzler-OMNI/bug-desk`  
+3. Framework: leave default (Vite / nitro build already configured)  
+4. Env (recommended for production durability):  
+   - `DATABASE_URL` = Neon Postgres connection string  
+   - optional: `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, Grok auth client vars  
+5. **Deploy** → domain will be `bug-desk.vercel.app` (or custom)  
+6. Point custom host if desired (e.g. `bugs.onemissionnetworkandinstitute.org`)
+
+Without `DATABASE_URL` the app still runs (embedded PGLite per instance — fine for demo, not multi-instance durable).
+
+## After deploy
+
+| Action | URL |
+|--------|-----|
+| File report | `/report` |
+| Steward dashboard | `/admin` |
+| Sign in (member tag) | `/login` |
+
+Wire the green sitewide **Bug / idea** button to `/report?site=onemission` (or host this app under that path) when you cut over from FormSubmit.
