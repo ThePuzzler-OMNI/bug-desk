@@ -134,13 +134,35 @@ const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
 const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
 const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
 
-// Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
-// embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
-// SAME DB as app data, including email/password users. Both use the Better Auth
-// schema from `migrations/0001_auth.sql`.
+/** Never open PGLite on Vercel/serverless — it throws ENOENT on pglite.data. */
+function isServerlessNoNeon(): boolean {
+  if (databaseUrl) return false;
+  return (
+    env("VERCEL") === "1" ||
+    Boolean(env("VERCEL_ENV")) ||
+    Boolean(env("AWS_LAMBDA_FUNCTION_NAME")) ||
+    (env("NODE_ENV") === "production" && !databaseUrl)
+  );
+}
+
+// Real Postgres when `DATABASE_URL` is set (deployed apps).
+// Local/preview: PGLite via Kysely dialect (same DB as app data).
+// Serverless without Neon: still need a Pool-shaped object for Better Auth —
+// sessions will not stick across instances until DATABASE_URL is set. We avoid
+// calling getPglite() which crashes the whole /api/auth tree with ENOENT.
 const database = databaseUrl
   ? new Pool({ connectionString: databaseUrl })
-  : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
+  : isServerlessNoNeon()
+    ? // Temporary: in-memory postgres is not available; use a throw-on-use Pool
+      // so auth routes fail soft instead of taking down bug API module load.
+      // Steward must set DATABASE_URL (Neon) for durable sessions on Vercel.
+      new Pool({
+        connectionString:
+          "postgresql://unused:unused@127.0.0.1:1/none",
+        connectionTimeoutMillis: 500,
+        max: 1,
+      })
+    : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 /** Session token cookie name — also read by the live-preview popup completion page. */
 export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";

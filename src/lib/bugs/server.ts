@@ -342,6 +342,19 @@ export const getBugStats = createServerFn({ method: "GET" }).handler(
 
 export const seedDemoBugs = createServerFn({ method: "POST" }).handler(
   async () => {
+    // Production / Vercel: never invent demo rows that look like real open work
+    const isProd =
+      (typeof process !== "undefined" && process.env["VERCEL"] === "1") ||
+      (typeof process !== "undefined" && process.env["VERCEL_ENV"] === "production") ||
+      (typeof process !== "undefined" && process.env["NODE_ENV"] === "production");
+    if (isProd) {
+      return {
+        seeded: false,
+        count: usesMemoryBugStore() ? memoryCount() : 0,
+        blocked: true,
+        message: "Demo seed disabled in production — file real bugs only.",
+      };
+    }
     if (usesMemoryBugStore()) {
       if (memoryCount() > 0) return { seeded: false, count: memoryCount() };
       await createBugReport({

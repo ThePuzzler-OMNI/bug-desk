@@ -1,29 +1,47 @@
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite" | "memory";
 
-// An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
-// "unset" — otherwise production would silently run on the PGLite fallback.
-const rawDatabaseUrl =
-  typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
-const databaseUrl =
-  rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
+/**
+ * Resolve env at **call time** — not module load.
+ * Vite/ bundlers often inline `process.env.VERCEL` at build time; if the build
+ * machine is not Vercel, a top-level `dbSource = pglite` freezes into the
+ * production bundle and every request tries (and fails) to open pglite.data.
+ * Bracket access + runtime reads avoid that.
+ */
+function env(name: string): string | undefined {
+  if (typeof process === "undefined" || !process.env) return undefined;
+  const v = process.env[name];
+  return v && String(v).trim() ? String(v).trim() : undefined;
+}
+
+function readDatabaseUrl(): string | undefined {
+  return env("DATABASE_URL");
+}
 
 /** Vercel serverless cannot load PGLite wasm data assets (ENOENT pglite.data). */
-const onVercel =
-  typeof process !== "undefined" &&
-  (process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV));
+function isServerlessRuntime(): boolean {
+  // Any truthy VERCEL* / AWS Lambda / Cloudflare marker → never use PGLite
+  if (env("VERCEL") === "1") return true;
+  if (env("VERCEL_ENV")) return true;
+  if (env("AWS_LAMBDA_FUNCTION_NAME")) return true;
+  if (env("NETLIFY") === "true") return true;
+  // Fail-closed: if the platform says "production" and we have no DATABASE_URL,
+  // prefer memory over PGLite (PGLite is for local dev only).
+  if (env("NODE_ENV") === "production" && !readDatabaseUrl()) return true;
+  return false;
+}
 
 /**
- * Active backend:
+ * Active backend (computed per call so deploys pick the right store):
  * - **Neon** when `DATABASE_URL` is set
- * - **PGLite** for local/preview (no DATABASE_URL, not Vercel)
- * - **memory** on Vercel without DATABASE_URL (bugs use in-process store)
+ * - **memory** on serverless without DATABASE_URL (bugs in-process)
+ * - **PGLite** for local/preview only
  */
-export const dbSource: DbSource = databaseUrl
-  ? "neon"
-  : onVercel
-    ? "memory"
-    : "pglite";
+export function getDbSource(): DbSource {
+  if (readDatabaseUrl()) return "neon";
+  if (isServerlessRuntime()) return "memory";
+  return "pglite";
+}
 
 /**
  * Minimal shared SQL surface, satisfied by both Neon and PGLite. Both the
@@ -93,6 +111,10 @@ function toSql(run: Run): Sql {
 }
 
 function createNeonSql(): Promise<Sql> {
+  const connectionString = readDatabaseUrl();
+  if (!connectionString) {
+    return Promise.reject(new Error("DATABASE_URL not set"));
+  }
   globalRef.__pgSqlPromise__ ??= (async () => {
     // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
     // pooled endpoint. One pool per process; warm serverless instances reuse it.
@@ -100,7 +122,7 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const pool = new Pool({ connectionString });
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -185,8 +207,9 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
-  if (dbSource === "neon") return createNeonSql();
-  if (dbSource === "memory") {
+  const source = getDbSource();
+  if (source === "neon") return createNeonSql();
+  if (source === "memory") {
     throw new Error(
       "MEMORY_DB: no Postgres on this runtime — bug store uses memory fallback",
     );
@@ -215,7 +238,7 @@ export function getSql(): Promise<Sql> {
  * Kysely dialect). Throws when `DATABASE_URL` is set (that path uses Neon).
  */
 export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite> {
-  if (dbSource !== "pglite") {
+  if (getDbSource() !== "pglite") {
     throw new Error("getPglite() is only available on the PGLite fallback (no DATABASE_URL)");
   }
   await getSql();
@@ -235,24 +258,15 @@ export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite
  * module kick it off immediately (see bottom of file).
  */
 export function ensureDbReady(): Promise<void> {
-  if (dbSource !== "pglite") return Promise.resolve();
+  if (getDbSource() !== "pglite") return Promise.resolve();
   return getSql().then(() => undefined);
 }
 
 /** True when bugs should use the in-process memory store (no SQL). */
 export function usesMemoryBugStore(): boolean {
-  return dbSource === "memory";
+  return getDbSource() === "memory";
 }
 
-// Server-only eager start: kick PGLite bootstrap as soon as this module loads in
-// Node. Client bundles never hit this path (`getSql` throws in the browser).
-const globalBoot = globalThis as typeof globalThis & {
-  __pgBootstrapPromise__?: Promise<void>;
-};
-if (typeof window === "undefined" && dbSource === "pglite") {
-  globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
-    globalBoot.__pgBootstrapPromise__ = undefined;
-    console.error("[db] PGLite bootstrap failed:", err);
-    throw err;
-  });
-}
+// Do NOT eager-boot PGLite at module load — that freezes the wrong backend in
+// serverless bundles and causes ENOENT on pglite.data. Local dev calls
+// ensureDbReady() from Vite configureServer when needed.

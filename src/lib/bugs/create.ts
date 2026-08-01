@@ -78,10 +78,9 @@ export async function createBugReport(
   try {
     return await createBugReportSql(data);
   } catch (err) {
-    console.warn(
-      "[bugs] SQL create failed — using memory store:",
-      err instanceof Error ? err.message : err,
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[bugs] SQL create failed — using memory store:", msg);
+    // Never surface PGLite/Neon path errors to the public submit API
     return memoryCreateBug(data);
   }
 }
