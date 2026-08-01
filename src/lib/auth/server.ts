@@ -45,8 +45,9 @@ import {
   PREVIEW_CLIENT_SECRET,
 } from "./preview";
 
-// Kick (and share) PGLite bootstrap as soon as the auth server module loads.
-void ensureDbReady();
+// Do not eager-boot PGLite here — on Vercel that loads pglite.data and 500s
+// every route that imports auth (including bug submit). Local dev boots via
+// ensureDbReady() only when getDbSource() === "pglite".
 
 /**
  * Preview secret must outlive module reloads: PGLite (and its session rows) is

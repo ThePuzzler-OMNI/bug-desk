@@ -32,6 +32,7 @@ export const Route = createFileRoute("/api/bugs")({
         return json({
           ok: true,
           health: "up",
+          build: "2026-08-01-pglite-nuke",
           dbSource: getDbSource(),
           memoryStore: usesMemoryBugStore(),
           post: "POST /api/bugs with JSON body",

@@ -72,7 +72,15 @@ async function createBugReportSql(
 export async function createBugReport(
   data: CreateBugInput,
 ): Promise<CreateBugResult> {
+  // Nuclear rule: only attempt SQL when Neon is configured. Never open PGLite
+  // from the public submit path (Vercel ENOENT on pglite.data).
   if (usesMemoryBugStore()) {
+    return memoryCreateBug(data);
+  }
+  const hasNeon =
+    typeof process !== "undefined" &&
+    Boolean(process.env["DATABASE_URL"]?.trim());
+  if (!hasNeon) {
     return memoryCreateBug(data);
   }
   try {
@@ -80,7 +88,6 @@ export async function createBugReport(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn("[bugs] SQL create failed — using memory store:", msg);
-    // Never surface PGLite/Neon path errors to the public submit API
     return memoryCreateBug(data);
   }
 }
